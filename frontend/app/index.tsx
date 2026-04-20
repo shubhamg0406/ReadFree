@@ -100,7 +100,24 @@ export default function Home() {
   const handlePaste = useCallback(async () => {
     try {
       setPasting(true);
-      const txt = await Clipboard.getStringAsync();
+      // On web, use the browser's navigator.clipboard directly to avoid the
+      // expo-clipboard permission round-trip (which surfaces a "denied" toast
+      // in Safari). Fail quietly if blocked — user can paste via long-press.
+      let txt = "";
+      if (Platform.OS === "web") {
+        try {
+          // @ts-ignore - navigator is available in web runtime
+          txt = await (navigator?.clipboard?.readText?.() ?? Promise.resolve(""));
+        } catch {
+          txt = "";
+        }
+      } else {
+        try {
+          txt = await Clipboard.getStringAsync();
+        } catch {
+          txt = "";
+        }
+      }
       if (txt) {
         const extracted = extractUrl(txt) || txt;
         setUrl(extracted);
@@ -188,9 +205,14 @@ export default function Home() {
                   keyboardType="url"
                   returnKeyType="go"
                   onSubmitEditing={() => go(url)}
-                  style={[styles.input, { color: colors.textPrimary }]}
+                  style={[
+                    styles.input,
+                    { color: colors.textPrimary, caretColor: colors.textPrimary } as any,
+                  ]}
                   testID="url-input-field"
                   selectionColor={colors.textPrimary}
+                  cursorColor={colors.textPrimary}
+                  underlineColorAndroid="transparent"
                 />
                 {url.length > 0 ? (
                   <TouchableOpacity

@@ -108,6 +108,65 @@ async def _fetch(session: httpx.AsyncClient, url: str) -> httpx.Response:
     return await session.get(url, headers=REQUEST_HEADERS, follow_redirects=True)
 
 
+# User agents that many paywalled news sites serve full content to (for SEO).
+BOT_UAS = [
+    # Googlebot Mobile — most sites allow this and serve full article for SEO.
+    "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36 "
+    "(compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+    # Facebook crawler — many sites serve clean OG-card content.
+    "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+    # Twitterbot — similar behavior.
+    "Twitterbot/1.0",
+]
+
+
+async def _fetch_direct_as_bot(target_url: str) -> Optional[tuple[str, str]]:
+    """
+    Try to fetch the original URL directly while impersonating Googlebot / FB / Twitter.
+    Many paywalled sites (NYT, WSJ, FT, HBR, Bloomberg, Medium, The Atlantic, etc.)
+    return full article content to these crawlers for SEO / social preview.
+    Returns (final_url, html) on success, None if all UAs fail or content is too short.
+    """
+    async with httpx.AsyncClient(timeout=TIMEOUT, http2=False) as session:
+        for ua in BOT_UAS:
+            try:
+                headers = {
+                    **REQUEST_HEADERS,
+                    "User-Agent": ua,
+                    "Referer": "https://www.google.com/",
+                }
+                resp = await session.get(
+                    target_url, headers=headers, follow_redirects=True
+                )
+            except httpx.RequestError:
+                continue
+
+            if resp.status_code != 200 or not resp.text:
+                continue
+
+            # Quick paywall heuristic: if the response is tiny or contains obvious
+            # paywall markers AND is short, skip to next UA.
+            text = resp.text
+            lower = text[:50000].lower()
+            if len(text) < 4000:
+                continue
+            paywall_markers = (
+                "subscribe to continue",
+                "sign in to read",
+                "you have reached your",
+                'class="paywall"',
+                "id=\"paywall\"",
+                '"isaccessiblefromsearch":false',
+            )
+            # Only bail out if the page is BOTH short AND has paywall markers.
+            if len(text) < 20000 and any(m in lower for m in paywall_markers):
+                continue
+
+            return str(resp.url), text
+    return None
+
+
 def _strip_archive_chrome(html: str) -> str:
     """Remove archive.is injected toolbar / challenge UI before readability."""
     soup = BeautifulSoup(html, "lxml")
@@ -274,6 +333,18 @@ async def resolve_article(payload: ResolveRequest):
 
     logger.info("Resolving %s (server-side attempt)", raw_url)
 
+    # 1) Try fetching the original URL as a search/social bot — many paywalled
+    #    sites return full content to Googlebot for SEO.
+    direct = await _fetch_direct_as_bot(raw_url)
+    if direct is not None:
+        final_url, direct_html = direct
+        try:
+            return _readability_extract(direct_html, raw_url, final_url)
+        except HTTPException as e:
+            # Readability couldn't extract enough content — fall through to archive.is
+            logger.info("Bot-UA fetch succeeded but readability failed: %s", e.detail)
+
+    # 2) Fall back to archive.is (will often be blocked; client retries via WebView).
     snapshot_url, snapshot_html = await _resolve_snapshot(raw_url)
     return _readability_extract(snapshot_html, raw_url, snapshot_url)
 

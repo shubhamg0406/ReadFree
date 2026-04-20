@@ -28,21 +28,29 @@ APK; not in web preview.)
 archive.is aggressively blocks datacenter IPs (AWS / GCP / Cloudflare) with a
 reCAPTCHA challenge. A naïve server-side proxy — whether FastAPI, Cloudflare
 Worker, or Vercel function — will fail for real URLs. ReadFree therefore uses a
-two-stage hybrid:
+three-tier resolver:
 
 ```
-┌─ USER DEVICE (Expo) ──────────────┐      ┌─ BACKEND (FastAPI) ──────┐
-│ 1. POST /api/resolve  ──────────► │      │   Best-effort server-    │
-│                       ◄──451──    │      │   side fetch of archive.is│
-│ 2. Hidden WebView fetches archive │      │   Returns 451 when blocked│
-│    on the user's residential IP   │      │                           │
-│ 3. Posts raw HTML to /api/extract │      │ /api/extract:             │
-│                       ──────────► │      │   readability-lxml strips │
-│                       ◄──JSON──── │      │   chrome, extracts article│
-│ 4. Renders with react-native-     │      │   content, absolutizes    │
-│    render-html (serif, themed)    │      │   image URLs              │
-└───────────────────────────────────┘      └───────────────────────────┘
+┌─ USER DEVICE (Expo) ──────────────┐      ┌─ BACKEND (FastAPI) ──────────────┐
+│ 1. POST /api/resolve  ──────────► │      │  (a) Fetch ORIGINAL URL as       │
+│                       ◄──article──│      │      Googlebot/FB/Twitter UA.    │
+│ OR 451 →                          │      │      Most paywalled sites serve  │
+│                                   │      │      full content for SEO.       │
+│ 2. Hidden WebView fetches archive │      │  (b) If (a) has no content,      │
+│    on the user's residential IP   │      │      fetch archive.is index +    │
+│ 3. Posts raw HTML to /api/extract │      │      snapshot. Often blocked.    │
+│                       ──────────► │      │  (c) If (b) blocked → 451.       │
+│                       ◄──JSON──── │      │                                  │
+│ 4. Renders with react-native-     │      │  /api/extract: run readability-  │
+│    render-html (serif, themed)    │      │  lxml on client-supplied HTML.   │
+└───────────────────────────────────┘      └──────────────────────────────────┘
 ```
+
+**Bot-UA direct fetch** is the new primary path and works for HBR, FT, WSJ,
+Bloomberg, Medium, The Atlantic, Forbes, The Economist, most Substack posts,
+etc. — any site that serves full content to Googlebot for SEO indexing. NYT
+recently started blocking crawlers with HTTP 403, so that site falls through
+to the archive.is path.
 
 - On-device WebView uses the phone's mobile/Wi-Fi IP, which archive.is
   typically allows. The hidden WebView probes the archive index page, grabs
@@ -50,8 +58,8 @@ two-stage hybrid:
   to it, then hands the rendered HTML to the backend.
 - Backend runs `readability-lxml` (mozilla-readability port) to strip
   archive.is toolbar, navigation, ads, and return pure article HTML.
-- On web preview only, the WebView fallback cannot run (archive.is blocks
-  iframe embedding via X-Frame-Options). The app shows a clear error message
+- On web preview, the WebView fallback cannot run (archive.is blocks iframe
+  embedding via X-Frame-Options). The app shows a clear error message
   in that case. Real Android APK is the target runtime.
 
 ## API
