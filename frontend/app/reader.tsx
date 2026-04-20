@@ -120,21 +120,29 @@ export default function Reader() {
     setData(null);
     postedHtmlRef.current = false;
     snapshotUrlRef.current = null;
+    console.log("[ReadFree] resolve start", { url, api: API_BASE, platform: Platform.OS });
     try {
       const res = await fetch(`${API_BASE}/api/resolve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url }),
       });
+      console.log("[ReadFree] resolve status", res.status);
       const body = await res.json().catch(() => ({}));
       if (res.ok) {
         setData(body as ResolveResponse);
         setStage("ready");
         return;
       }
-      // 451 = server blocked by archive.is -> try client-side webview
+      // 451 = server blocked by archive.is -> try client-side webview (native only)
       if (res.status === 451 || res.status === 502 || res.status === 429) {
-        setWebviewUri(`https://archive.ph/newest/${encodeURI(url)}`);
+        if (Platform.OS === "web") {
+          finishWithError(
+            "archive.is is blocking automated requests right now. Please try again from the Android app — open this URL on the installed ReadFree APK."
+          );
+          return;
+        }
+        setWebviewUri(`https://archive.ph/newest/${encodeURI(url as string)}`);
         setStage("webview_index");
         return;
       }
@@ -143,8 +151,11 @@ export default function Reader() {
         return;
       }
       finishWithError(String(body?.detail || "Could not reach archive. Check your connection."));
-    } catch {
-      // Network error to our backend — try on-device fetch anyway
+    } catch (e) {
+      if (Platform.OS === "web") {
+        finishWithError("Could not reach archive. Check your connection.");
+        return;
+      }
       setWebviewUri(`https://archive.ph/newest/${encodeURI(url as string)}`);
       setStage("webview_index");
     }
@@ -153,6 +164,17 @@ export default function Reader() {
   useEffect(() => {
     tryServerResolve();
   }, [tryServerResolve]);
+
+  // Watchdog: if the on-device WebView fallback hasn't finished in 45s, fail gracefully.
+  useEffect(() => {
+    if (stage !== "webview_index" && stage !== "webview_snapshot") return;
+    const t = setTimeout(() => {
+      finishWithError(
+        "Could not reach archive. Check your connection or try again in a minute."
+      );
+    }, 45000);
+    return () => clearTimeout(t);
+  }, [stage, finishWithError]);
 
   const extractFromHtml = useCallback(
     async (html: string, snapshotUrl: string) => {
@@ -436,8 +458,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   iconBtn: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
   },

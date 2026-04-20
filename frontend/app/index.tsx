@@ -138,6 +138,7 @@ export default function Home() {
                 onPress={toggle}
                 activeOpacity={0.7}
                 hitSlop={12}
+                style={styles.themeToggleBtn}
                 testID="theme-toggle-button"
                 accessibilityLabel="Toggle theme"
               >
@@ -291,6 +292,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingTop: 8,
     paddingBottom: 24,
+  },
+  themeToggleBtn: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
   },
   column: {
     flex: 1,

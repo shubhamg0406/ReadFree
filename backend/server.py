@@ -58,7 +58,7 @@ REQUEST_HEADERS = {
     "Cache-Control": "no-cache",
 }
 
-TIMEOUT = httpx.Timeout(25.0, connect=15.0)
+TIMEOUT = httpx.Timeout(8.0, connect=5.0)
 
 # ---------- Models ----------
 
@@ -190,13 +190,19 @@ async def _resolve_snapshot(target_url: str) -> tuple[str, str]:
                 last_error = f"network:{e.__class__.__name__}"
                 continue
 
+            # Block / challenge detection (archive.is serves HTTP 429 + reCAPTCHA)
+            if idx_resp.status_code in (429, 403):
+                last_error = "blocked_by_archive"
+                continue
+            head = idx_resp.text[:20000] if idx_resp.text else ""
+            if "g-recaptcha" in head:
+                last_error = "blocked_by_archive"
+                continue
+
             final_url = str(idx_resp.url).rstrip("/")
             if SNAPSHOT_PATTERN.match(final_url) and idx_resp.status_code == 200:
                 return final_url, idx_resp.text
 
-            if idx_resp.status_code in (429, 403) or "g-recaptcha" in idx_resp.text[:20000]:
-                last_error = "blocked_by_archive"
-                continue
             if idx_resp.status_code >= 400:
                 last_error = f"index_status:{idx_resp.status_code}"
                 continue
@@ -212,8 +218,11 @@ async def _resolve_snapshot(target_url: str) -> tuple[str, str]:
                 last_error = f"snapshot_network:{e.__class__.__name__}"
                 continue
 
-            if snap_resp.status_code != 200 or "g-recaptcha" in snap_resp.text[:20000]:
+            if snap_resp.status_code != 200:
                 last_error = f"snapshot_bad:{snap_resp.status_code}"
+                continue
+            if "g-recaptcha" in snap_resp.text[:20000]:
+                last_error = "blocked_by_archive"
                 continue
 
             return snapshot, snap_resp.text
@@ -224,7 +233,6 @@ async def _resolve_snapshot(target_url: str) -> tuple[str, str]:
             detail="No archived version found for this article.",
         )
     if last_error == "blocked_by_archive":
-        # Signal to client that it should retry via its WebView path.
         raise HTTPException(
             status_code=451,
             detail="Server-side fetch blocked by archive.is. Client will retry via on-device fetch.",
@@ -290,7 +298,7 @@ async def extract_article(payload: ExtractRequest):
 
     # Reject obvious captcha / block pages so client can retry
     head = payload.html[:30000]
-    if "g-recaptcha" in head or "Please enable JavaScript" in head and len(payload.html) < 20000:
+    if "g-recaptcha" in head or ("Please enable JavaScript" in head and len(payload.html) < 20000):
         raise HTTPException(
             status_code=451,
             detail="archive.is returned a challenge page. Please try again in a moment.",
