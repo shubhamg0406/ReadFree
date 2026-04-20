@@ -1,0 +1,173 @@
+{
+  "project_name": "ReadFree",
+  "app_type": "React Native Expo (Android focus)",
+  "theme": "Light + Dark Toggle",
+  "archetype": "Swiss & High-Contrast / Editorial Brutalism",
+  "design_philosophy": {
+    "core_principles": [
+      "Content is King: The UI must completely dissolve when the user is reading.",
+      "Tactile Utility: Inputs and buttons should feel physical, using 1px borders and sharp/slight radii instead of soft shadows.",
+      "Typographic Tension: Contrast sterile, functional sans-serif UI elements with warm, elegant serif reading content.",
+      "Eye Comfort: Never use pure #FFFFFF for reading backgrounds; use a warm paper tint in light mode and a deep matte charcoal in dark mode."
+    ]
+  },
+  "colors": {
+    "light": {
+      "background": "#F9F8F6",
+      "surface": "#FFFFFF",
+      "text_primary": "#121212",
+      "text_secondary": "#5C5C5C",
+      "border": "#E5E5E5",
+      "brand_primary": "#000000",
+      "brand_primary_text": "#FFFFFF",
+      "error": "#D32F2F"
+    },
+    "dark": {
+      "background": "#0C0C0C",
+      "surface": "#1A1A1A",
+      "text_primary": "#EAEAEA",
+      "text_secondary": "#A3A3A3",
+      "border": "#2E2E2E",
+      "brand_primary": "#FFFFFF",
+      "brand_primary_text": "#000000",
+      "error": "#FF6B6B"
+    }
+  },
+  "typography": {
+    "rules": "DO NOT import custom fonts to keep the bundle small and native-feeling. Use Android's default system fonts.",
+    "families": {
+      "ui": "sans-serif",
+      "reader": "serif"
+    },
+    "scales": {
+      "h1_title": {
+        "fontSize": 32,
+        "lineHeight": 40,
+        "fontFamily": "sans-serif",
+        "fontWeight": "bold",
+        "letterSpacing": -1
+      },
+      "h2_article_title": {
+        "fontSize": 26,
+        "lineHeight": 34,
+        "fontFamily": "serif",
+        "fontWeight": "bold",
+        "letterSpacing": -0.5
+      },
+      "body_reader": {
+        "fontSize": 18,
+        "lineHeight": 28,
+        "fontFamily": "serif",
+        "fontWeight": "normal",
+        "color_opacity": 0.9
+      },
+      "body_ui": {
+        "fontSize": 16,
+        "lineHeight": 24,
+        "fontFamily": "sans-serif",
+        "fontWeight": "normal"
+      },
+      "caption": {
+        "fontSize": 12,
+        "lineHeight": 16,
+        "fontFamily": "sans-serif",
+        "fontWeight": "medium",
+        "letterSpacing": 1,
+        "textTransform": "uppercase"
+      }
+    }
+  },
+  "layout_and_spacing": {
+    "base_unit": 8,
+    "screen_padding": 24,
+    "reader_padding": 20,
+    "element_spacing": 16,
+    "border_radius": {
+      "sm": 2,
+      "md": 4,
+      "lg": 8,
+      "button": 4
+    }
+  },
+  "screens": {
+    "home_screen": {
+      "layout": "Centered vertical stack with generous negative space.",
+      "elements": [
+        {
+          "name": "App Title",
+          "style": "h1_title, heavily tracked, top-aligned with significant top margin."
+        },
+        {
+          "name": "URL Input",
+          "style": "Large tap target (min-height 56px), 1px solid border, subtle background tint. MUST include a 'Paste' quick-action icon inside or near the input.",
+          "test_id": "url-input-field"
+        },
+        {
+          "name": "Read Button",
+          "style": "Full-width, stark contrast (Black in light mode, White in dark mode), sharp or slightly rounded corners (4px max), bold sans-serif text.",
+          "test_id": "read-submit-button"
+        },
+        {
+          "name": "Theme Toggle",
+          "style": "Minimalist icon-only button placed in the top-right corner or bottom center.",
+          "test_id": "theme-toggle-button"
+        }
+      ]
+    },
+    "loading_state": {
+      "layout": "Full screen overlay or centered.",
+      "visuals": "Do not use a generic spinner. Use a typographic pulse effect on the word 'Resolving...' or 'Fetching snapshot...', or a minimalist indeterminate horizontal progress bar (1px height).",
+      "test_id": "loading-indicator"
+    },
+    "reader_view": {
+      "top_bar": {
+        "layout": "Minimalist. Flex row. Back button on left, source domain name (e.g., 'nytimes.com') in center (caption style, uppercase, widely tracked), Theme toggle on right.",
+        "style": "Solid background matching theme. 1px bottom border to separate from content.",
+        "test_ids": {
+          "back": "reader-back-button",
+          "domain": "reader-source-domain"
+        }
+      },
+      "content_area": {
+        "layout": "ScrollView with strict padding (20px horizontal).",
+        "typography": "Article title uses h2_article_title. Body uses body_reader (18sp, 1.6 line height).",
+        "images": "Scaled to screen width minus padding, subtle 2px border radius, caption text underneath.",
+        "test_id": "article-scroll-view"
+      }
+    },
+    "error_state": {
+      "layout": "Centered, stark.",
+      "visuals": "Red accent color for an icon (e.g., an 'X' or broken link), surrounded by high-contrast sans-serif text explaining the error.",
+      "test_id": "error-message"
+    }
+  },
+  "components": {
+    "button": {
+      "base": "min-height 56px, flex-center, font-bold, tracking-wide",
+      "primary": "bg-brand_primary text-brand_primary_text border-radius-4",
+      "secondary": "bg-transparent text-text_primary border-1 border-border"
+    },
+    "input": {
+      "base": "min-height 56px, padding-horizontal 16, fontSize 16, border-1 border-border, bg-surface, color-text_primary, border-radius-4"
+    }
+  },
+  "motion_and_interactions": {
+    "buttons": "Opacity shift to 0.7 on press (ActiveOpacity).",
+    "screen_transitions": "Standard Android horizontal slide or fade. Do not over-animate.",
+    "theme_switch": "Smooth crossfade if possible, otherwise instant."
+  },
+  "accessibility_and_testing": {
+    "test_ids": "Every interactive element must have a data-testid mapped (or testID for React Native) matching kebab-case descriptors.",
+    "contrast": "Ensure text contrast against background exceeds 4.5:1. The chosen palette guarantees this."
+  },
+  "media": {
+    "image_urls": [],
+    "notes": "No external images required for UI. Content images are parsed dynamically from the article HTML."
+  },
+  "instructions_to_main_agent": [
+    "Use React Native StyleSheet for styling. Do not assume web CSS paradigms like hover states; focus on touch targets and activeOpacity.",
+    "Ensure the URL parser and routing logic handles intents from the Android Share Sheet.",
+    "Implement the reader view using a native ScrollView or a robust HTML renderer (like react-native-render-html) mapped to the typographic scales provided.",
+    "Respect the 'No custom fonts' rule. Stick to native 'sans-serif' and 'serif' for optimal performance and native feel."
+  ]
+}
