@@ -1,22 +1,40 @@
 {
   "expo": {
-    "name": "frontend",
-    "slug": "frontend",
+    "name": "ReadFree",
+    "slug": "readfree",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "frontend",
+    "scheme": "readfree",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.readfree.app"
     },
     "android": {
+      "package": "com.readfree.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#000"
+        "backgroundColor": "#0C0C0C"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "intentFilters": [
+        {
+          "action": "SEND",
+          "category": ["DEFAULT"],
+          "data": [{ "mimeType": "text/plain" }]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": false,
+          "category": ["DEFAULT", "BROWSABLE"],
+          "data": [
+            { "scheme": "http" },
+            { "scheme": "https" }
+          ]
+        }
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -31,7 +49,7 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#000"
+          "backgroundColor": "#0C0C0C"
         }
       ]
     ],

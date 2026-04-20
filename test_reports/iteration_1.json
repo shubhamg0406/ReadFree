@@ -1,0 +1,53 @@
+{
+  "summary": "ReadFree backend (FastAPI) and frontend (Expo web) tested. All 9 backend pytest cases pass (health, /resolve 400s, /resolve expected 451/502, /extract valid + archive-chrome stripping + image absolutization, /extract 400 short, /extract 451 captcha). Frontend home renders correctly with all required testIDs, theme toggle flips light<->dark (rgb(249,248,246) -> rgb(12,12,12)), URL input + submit routes to /reader with ?url= param, reader shows 'RESOLVING ARCHIVE…' loading state and the back button returns to home. One real bug found: on web preview the reader is stuck in loading forever (>36s) after backend returns 451/502 because the WebView fallback is gated by Platform.OS !== 'web' and there is no watchdog timeout, so the spec-required friendly error never appears.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/extract", "issue": "Operator precedence in the captcha guard: '\"g-recaptcha\" in head or \"Please enable JavaScript\" in head and len(payload.html) < 20000' — due to Python precedence this is parsed as (g-recaptcha in head) OR (JS-disabled msg AND short). Works but is easy to misread; add parentheses for clarity."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "app/reader.tsx", "issue": "On web (Platform.OS === 'web') the hidden WebView fallback is NOT rendered (guarded by Platform.OS !== 'web'), and tryServerResolve has no timeout/web-specific branch. When /api/resolve returns 451/502/429 the reader sets stage='webview_index' and sits on 'RESOLVING ARCHIVE…' forever. Per the review spec the UI should surface a friendly error ('archive.is is showing a challenge page…' / 'Could not reach archive. Check your connection.') within ~30s. Observed still loading at t=36s. Recommendation: on web, if stage enters webview_index/webview_snapshot, finishWithError immediately with a platform-aware message, OR add a 30s watchdog that transitions to error state.", "testID": "loading-state", "priority": "HIGH"},
+      {"component": "app/index.tsx theme-toggle-button", "issue": "Wrapper TouchableOpacity has no explicit width/height — measured bounding box w=0 h=0 (Ionicons renders inside but no hit area). Relies solely on hitSlop=12 ≈ 24x24 touch area which is below the 44x44 minimum. Wrap in a View with minWidth/minHeight 44.", "testID": "theme-toggle-button", "priority": "MEDIUM"},
+      {"component": "app/reader.tsx iconBtn", "issue": "reader-back-button and reader-theme-toggle use styles.iconBtn width:40 height:40 — below 44x44 accessibility minimum (close but non-compliant).", "testID": "reader-back-button", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "reader WebView fallback on web", "issue": "Web preview cannot use react-native-webview (it renders nothing on web), so the hybrid fallback cannot complete. Code should detect web and either (a) show an immediate explanatory error, or (b) perform a direct fetch() to archive.ph from the browser (will still fail CORS but lets us show a clean error state). Currently the user sees an infinite spinner.", "affected_testIDs": ["loading-state", "error-message"]}
+    ],
+    "design_issues": [
+      {"screen": "home", "issues": ["Layout, typography, spacing are clean and match the brief (light #F9F8F6, dark #0C0C0C, serif h1 'Read anything.', clear CTA). Paste icon visible and functional.", "Theme toggle target is smaller than 44x44."]},
+      {"screen": "reader", "issues": ["Loading pulse + top bar look good. WSJ.COM domain label renders correctly.", "Icon buttons (back/theme) are 40x40 instead of ≥44."]}
+    ],
+    "react_native_issues": [
+      {"component": "app/index.tsx", "issue": "TouchableWithoutFeedback is deprecated (logged warning every render). Swap to Pressable with onPress={Keyboard.dismiss}."},
+      {"component": "app/reader.tsx TypographicPulse", "issue": "Animated.timing with useNativeDriver:true warns on web ('RCTAnimation module missing'). Harmless but adds noise; gate with Platform.OS !== 'web' or accept the fallback."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_readfree_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "HIGH: Fix infinite loading in reader.tsx on web preview — add a web-specific branch or a ~30s watchdog that transitions to error stage with the spec-mandated messages so user never sees a perpetual spinner.",
+    "MEDIUM: Increase theme-toggle-button and reader icon buttons to a ≥44x44 touch target (minWidth/minHeight).",
+    "LOW: Parenthesize the captcha guard in /api/extract for clarity.",
+    "LOW: Replace deprecated TouchableWithoutFeedback with Pressable.",
+    "LOW: Skip useNativeDriver on web in TypographicPulse to silence warning."
+  ],
+  "critical_code_review_comments": [
+    "server.py line 293: 'if \"g-recaptcha\" in head or \"Please enable JavaScript\" in head and len(payload.html) < 20000' — add parentheses.",
+    "reader.tsx: tryServerResolve has no timeout; combined with Platform.OS gating the WebView, web users get a perpetual spinner on any 451/502. Needs either platform detection or a setTimeout watchdog.",
+    "server.py: MongoDB client is imported and connected but never used — dead dependency (fine for platform parity, but worth documenting).",
+    "theme-toggle-button wrapper has zero intrinsic size; touch area only from hitSlop. Below 44x44 guideline."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_readfree_api.py (new pytest suite)"
+  ],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "80% — home + navigation + theme toggle + back button + loading label all pass; reader error/ready state unreachable on web preview due to WebView gating bug"},
+  "seed_data_creation": "None — endpoints are stateless; no DB writes exercised.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend is fully green and stable against https://readfree-preview.preview.emergentagent.com. Reuse /app/backend/tests/test_readfree_api.py as regression. For frontend: mobile viewport 375x667. Use page.evaluate(\"el.click()\") on theme-toggle-button because its React Native wrapper measures 0x0 and fails Playwright viewport check. The reader-flow stuck-loading bug is the main blocker — after main agent adds the web watchdog / error fallback, verify that submitting a WSJ URL results in the error screen (with testID=error-message and testID=reader-retry-button) within ~30s on the web preview. Do NOT expect a fully rendered article on web preview — that requires the native APK + residential IP.",
+  "rca_of_issue": "ROOT CAUSE — Reader stuck on loading on web: In /app/frontend/app/reader.tsx, tryServerResolve branches to stage='webview_index' on HTTP 451/502/429 and sets webviewUri. Rendering of the hidden <WebView /> is gated by `Platform.OS !== 'web'`, so on the web preview no fetch actually runs after the 451/502, and no timeout exists to transition to stage='error'. Therefore stage never leaves 'webview_index' and the loading UI is shown indefinitely. REPRO: open web preview, type any URL, tap READ ARTICLE, wait. Expected per spec: within ~30s the UI shows one of the friendly error messages and the retry button. MITIGATION: (a) if Platform.OS === 'web' when entering webview_index, immediately call finishWithError('archive.is is showing a challenge page. Try again in a minute or open the snapshot link manually.'); OR (b) start a 30s setTimeout in useEffect when stage becomes 'webview_index' and if still not ready/error, call finishWithError('Could not reach archive. Check your connection.')."
+}
