@@ -67,7 +67,7 @@ to the archive.is path.
 | Endpoint            | Method | Purpose                                         |
 | ------------------- | ------ | ----------------------------------------------- |
 | `/api/health`       | GET    | Liveness check                                  |
-| `/api/resolve`      | POST   | Best-effort server-side resolve (fast path)     |
+| `/api/resolve`      | POST   | Three-tier server-side resolve:  (a) direct bot-UA fetch → (b) Jina Reader → (c) archive.is |
 | `/api/extract`      | POST   | Run readability on client-fed snapshot HTML     |
 
 `POST /api/resolve` body: `{"url": "..."}` → `ResolveResponse` or

@@ -121,6 +121,62 @@ BOT_UAS = [
 ]
 
 
+async def _fetch_via_jina_reader(target_url: str) -> Optional[tuple[str, str]]:
+    """
+    Jina Reader (r.jina.ai) is a free public proxy that fetches arbitrary
+    URLs via residential routes and returns pre-extracted markdown.
+    No API key required. Returns (final_url, html) or None.
+    """
+    reader_url = f"https://r.jina.ai/{target_url}"
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT, http2=False) as session:
+            resp = await session.get(
+                reader_url,
+                headers={"User-Agent": UA, "Accept": "text/plain"},
+                follow_redirects=True,
+            )
+    except httpx.RequestError:
+        return None
+
+    if resp.status_code != 200 or not resp.text:
+        return None
+
+    body = resp.text
+    # Jina prefixes with "Title: ...\n\nURL Source: ...\n\n[Published Time: ...]\n\nMarkdown Content:\n..."
+    # Reject obvious error responses (short body, contains "Warning:").
+    if "Warning: Target URL returned error" in body or len(body) < 600:
+        return None
+
+    title = ""
+    md_content = body
+    # Parse title + strip preamble
+    lines = body.splitlines()
+    md_start = 0
+    for i, line in enumerate(lines):
+        if line.lower().startswith("title:"):
+            title = line.split(":", 1)[1].strip()
+        elif line.lower().startswith("markdown content:"):
+            md_start = i + 1
+            break
+    if md_start:
+        md_content = "\n".join(lines[md_start:]).strip()
+
+    if len(md_content) < 400:
+        return None
+
+    # Convert markdown → HTML so the same readability / render pipeline can be reused.
+    import markdown as _md
+    html_body = _md.markdown(
+        md_content, extensions=["extra", "sane_lists", "smarty"]
+    )
+    # Wrap with title so readability can still extract nicely if needed
+    full_html = (
+        f"<html><head><title>{title}</title></head>"
+        f"<body><article><h1>{title}</h1>{html_body}</article></body></html>"
+    )
+    return target_url, full_html
+
+
 async def _fetch_direct_as_bot(target_url: str) -> Optional[tuple[str, str]]:
     """
     Try to fetch the original URL directly while impersonating Googlebot / FB / Twitter.
@@ -341,10 +397,18 @@ async def resolve_article(payload: ResolveRequest):
         try:
             return _readability_extract(direct_html, raw_url, final_url)
         except HTTPException as e:
-            # Readability couldn't extract enough content — fall through to archive.is
             logger.info("Bot-UA fetch succeeded but readability failed: %s", e.detail)
 
-    # 2) Fall back to archive.is (will often be blocked; client retries via WebView).
+    # 2) Try Jina Reader — free public proxy via residential IPs.
+    jina = await _fetch_via_jina_reader(raw_url)
+    if jina is not None:
+        final_url, jina_html = jina
+        try:
+            return _readability_extract(jina_html, raw_url, final_url)
+        except HTTPException as e:
+            logger.info("Jina Reader fetch succeeded but readability failed: %s", e.detail)
+
+    # 3) Fall back to archive.is (often blocked; client retries via WebView).
     snapshot_url, snapshot_html = await _resolve_snapshot(raw_url)
     return _readability_extract(snapshot_html, raw_url, snapshot_url)
 

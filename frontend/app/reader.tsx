@@ -35,7 +35,23 @@ type Stage =
   | "webview_snapshot"
   | "extracting"
   | "ready"
+  | "fallback_browser"
   | "error";
+
+// JS injected on demand to extract the current page's HTML for reader mode.
+const EXTRACT_CURRENT_JS = `
+(function(){
+  try {
+    window.ReactNativeWebView.postMessage(JSON.stringify({
+      type: 'current_html',
+      url: window.location.href,
+      html: document.documentElement.outerHTML
+    }));
+  } catch(e) {
+    window.ReactNativeWebView.postMessage(JSON.stringify({type:'extract_error', message:String(e)}));
+  }
+})(); true;
+`;
 
 const API_BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
 const SNAPSHOT_RE = /^https?:\/\/archive\.(?:is|ph|today|li|md|vn|fo)\/[A-Za-z0-9]{4,8}\/?$/;
@@ -135,25 +151,33 @@ export default function Reader() {
         return;
       }
       // 451 = server blocked by archive.is -> try client-side webview (native only)
-      if (res.status === 451 || res.status === 502 || res.status === 429) {
+      if (res.status === 451 || res.status === 502 || res.status === 429 || res.status === 404) {
         if (Platform.OS === "web") {
-          finishWithError(
-            "archive.is is blocking automated requests right now. Please try again from the Android app — open this URL on the installed ReadFree APK."
-          );
+          // On web: go straight to the visible fallback browser so user can
+          // pick a snapshot manually (works as long as archive.is allows
+          // iframe embedding for that particular page — and degrades to an
+          // error badge if it doesn't).
+          setWebviewUri(`https://archive.ph/${encodeURI(url as string)}`);
+          setStage("fallback_browser");
+          return;
+        }
+        if (res.status === 404) {
+          // Give the user a real fallback — show the archive.ph results page
+          // in a full WebView with a reader-mode toggle.
+          setWebviewUri(`https://archive.ph/${encodeURI(url as string)}`);
+          setStage("fallback_browser");
           return;
         }
         setWebviewUri(`https://archive.ph/newest/${encodeURI(url as string)}`);
         setStage("webview_index");
         return;
       }
-      if (res.status === 404) {
-        finishWithError("No archived version found for this article.");
-        return;
-      }
       finishWithError(String(body?.detail || "Could not reach archive. Check your connection."));
     } catch (e) {
       if (Platform.OS === "web") {
-        finishWithError("Could not reach archive. Check your connection.");
+        // Offer the fallback browser on web too
+        setWebviewUri(`https://archive.ph/${encodeURI(url as string)}`);
+        setStage("fallback_browser");
         return;
       }
       setWebviewUri(`https://archive.ph/newest/${encodeURI(url as string)}`);
@@ -215,15 +239,25 @@ export default function Reader() {
         if (postedHtmlRef.current) return;
         postedHtmlRef.current = true;
         extractFromHtml(msg.html, msg.url || snapshotUrlRef.current || "");
+      } else if (msg.type === "current_html") {
+        // User tapped reader-mode toggle from fallback browser
+        extractFromHtml(msg.html, msg.url || url || "");
       } else if (msg.type === "no_snapshot") {
-        finishWithError("No archived version found for this article.");
+        // In headless fallback mode, switch to visible browser so user can
+        // manually pick a snapshot or paste a different URL.
+        if (stage === "webview_index" || stage === "webview_snapshot") {
+          setWebviewUri(`https://archive.ph/${encodeURI(url as string)}`);
+          setStage("fallback_browser");
+        }
       } else if (msg.type === "captcha") {
-        finishWithError(
-          "archive.is is showing a challenge page. Try again in a minute or open the snapshot link manually."
-        );
+        if (stage === "webview_index" || stage === "webview_snapshot") {
+          // Switch to visible browser — user can solve the captcha themselves.
+          setWebviewUri(`https://archive.ph/${encodeURI(url as string)}`);
+          setStage("fallback_browser");
+        }
       }
     },
-    [extractFromHtml, finishWithError]
+    [extractFromHtml, url, stage]
   );
 
   const onWebviewNav = useCallback((nav: WebViewNavigation) => {
@@ -286,7 +320,23 @@ export default function Reader() {
       ? "LOADING SNAPSHOT…"
       : "EXTRACTING ARTICLE…";
 
-  const isLoading = stage !== "ready" && stage !== "error";
+  const isLoading =
+    stage !== "ready" &&
+    stage !== "error" &&
+    stage !== "fallback_browser";
+
+  const triggerReaderMode = useCallback(() => {
+    if (Platform.OS === "web") {
+      // Can't access iframe content on web due to cross-origin.
+      Alert.alert(
+        "Reader mode unavailable in preview",
+        "Reader-mode extraction from the archive browser only works in the installed Android APK. Tap the ↗ icon in the top right to open the snapshot in a new tab."
+      );
+      return;
+    }
+    setStage("extracting");
+    webviewRef.current?.injectJavaScript(EXTRACT_CURRENT_JS);
+  }, []);
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} testID="reader-screen">
@@ -310,37 +360,94 @@ export default function Reader() {
         >
           {domain || "READFREE"}
         </Text>
-        <TouchableOpacity
-          onPress={toggle}
-          hitSlop={14}
-          activeOpacity={0.7}
-          style={styles.iconBtn}
-          testID="reader-theme-toggle"
-          accessibilityLabel="Toggle theme"
-        >
-          <Ionicons name={mode === "dark" ? "sunny-outline" : "moon-outline"} size={22} color={colors.textPrimary} />
-        </TouchableOpacity>
+        <View style={styles.topBarRight}>
+          {stage === "fallback_browser" ? (
+            <TouchableOpacity
+              onPress={triggerReaderMode}
+              hitSlop={14}
+              activeOpacity={0.7}
+              style={styles.iconBtn}
+              testID="reader-mode-toggle"
+              accessibilityLabel="Switch to reader mode"
+            >
+              <Ionicons name="book-outline" size={22} color={colors.textPrimary} />
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity
+            onPress={toggle}
+            hitSlop={14}
+            activeOpacity={0.7}
+            style={styles.iconBtn}
+            testID="reader-theme-toggle"
+            accessibilityLabel="Toggle theme"
+          >
+            <Ionicons name={mode === "dark" ? "sunny-outline" : "moon-outline"} size={22} color={colors.textPrimary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Hidden WebView for on-device archive fetch (native only) */}
-      {Platform.OS !== "web" && webviewUri && stage !== "ready" && stage !== "error" && (
-        <View style={styles.hiddenWebview} pointerEvents="none">
-          <WebView
-            ref={webviewRef}
-            source={{ uri: webviewUri }}
-            onMessage={onWebviewMessage}
-            onNavigationStateChange={onWebviewNav}
-            injectedJavaScript={PROBE_JS}
-            javaScriptEnabled
-            domStorageEnabled
-            thirdPartyCookiesEnabled
-            cacheEnabled
-            originWhitelist={["*"]}
-            userAgent={
-              "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"
-            }
-            onError={() => finishWithError("Could not reach archive. Check your connection.")}
-          />
+      {/* Hidden WebView for on-device archive fetch (native only, during auto-resolve) */}
+      {Platform.OS !== "web" &&
+        webviewUri &&
+        (stage === "webview_index" || stage === "webview_snapshot") && (
+          <View style={styles.hiddenWebview} pointerEvents="none">
+            <WebView
+              ref={webviewRef}
+              source={{ uri: webviewUri }}
+              onMessage={onWebviewMessage}
+              onNavigationStateChange={onWebviewNav}
+              injectedJavaScript={PROBE_JS}
+              javaScriptEnabled
+              domStorageEnabled
+              thirdPartyCookiesEnabled
+              cacheEnabled
+              originWhitelist={["*"]}
+              userAgent={
+                "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"
+              }
+              onError={() => finishWithError("Could not reach archive. Check your connection.")}
+            />
+          </View>
+        )}
+
+      {/* Visible fallback browser — user manually picks a snapshot */}
+      {stage === "fallback_browser" && webviewUri && (
+        <View style={{ flex: 1 }} testID="fallback-browser">
+          <View
+            style={[styles.fallbackBanner, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          >
+            <Ionicons name="information-circle-outline" size={16} color={colors.textSecondary} />
+            <Text
+              style={[T.bodyUi, { color: colors.textSecondary, fontSize: 13, marginLeft: 8, flex: 1 }]}
+              numberOfLines={2}
+            >
+              Auto-resolve failed. Pick any snapshot below, then tap the book
+              icon{Platform.OS === "web" ? "" : " to render it in reader mode"}.
+            </Text>
+          </View>
+          {Platform.OS === "web" ? (
+            // eslint-disable-next-line react/no-unknown-property
+            <iframe
+              src={webviewUri}
+              title="archive.ph fallback"
+              style={{ flex: 1, border: 0, width: "100%", height: "100%" } as any}
+            />
+          ) : (
+            <WebView
+              ref={webviewRef}
+              source={{ uri: webviewUri }}
+              onMessage={onWebviewMessage}
+              javaScriptEnabled
+              domStorageEnabled
+              thirdPartyCookiesEnabled
+              cacheEnabled
+              originWhitelist={["*"]}
+              userAgent={
+                "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"
+              }
+              style={{ flex: 1 }}
+            />
+          )}
         </View>
       )}
 
@@ -457,6 +564,10 @@ const styles = StyleSheet.create({
     height: 52,
     borderBottomWidth: 1,
   },
+  topBarRight: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   iconBtn: {
     width: 44,
     height: 44,
@@ -498,5 +609,12 @@ const styles = StyleSheet.create({
     opacity: 0,
     top: -1000,
     left: -1000,
+  },
+  fallbackBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
   },
 });
