@@ -25,6 +25,14 @@ jobs:
         working-directory: frontend
         run: npm install
 
+      - name: Initialize EAS
+        working-directory: frontend
+        run: eas init --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
       - name: Build APK
         working-directory: frontend
         run: eas build -p android --profile preview --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
