@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote_plus, urlunparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -23,8 +23,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger("readfree")
 
-# MongoDB (kept for platform parity; not used actively)
-mongo_url = os.environ["MONGO_URL"]
+# MongoDB — re-encode credentials to handle special characters in passwords
+def _safe_mongo_url(url: str) -> str:
+    try:
+        p = urlparse(url)
+        if p.username and p.password:
+            netloc = f"{quote_plus(p.username)}:{quote_plus(p.password)}@{p.hostname}"
+            if p.port:
+                netloc += f":{p.port}"
+            return urlunparse(p._replace(netloc=netloc))
+    except Exception:
+        pass
+    return url
+
+mongo_url = _safe_mongo_url(os.environ["MONGO_URL"])
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ["DB_NAME"]]
 
