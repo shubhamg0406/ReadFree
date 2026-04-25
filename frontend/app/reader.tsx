@@ -88,20 +88,6 @@ const PROBE_JS = `
 })(); true;
 `;
 
-const EXTRACT_CURRENT_JS = `
-(function(){
-  try {
-    window.ReactNativeWebView.postMessage(JSON.stringify({
-      type: 'current_html',
-      url: window.location.href,
-      html: document.documentElement.outerHTML
-    }));
-  } catch(e) {
-    window.ReactNativeWebView.postMessage(JSON.stringify({type:'extract_error', message:String(e)}));
-  }
-})(); true;
-`;
-
 function TypographicPulse({ text, color }: { text: string; color: string }) {
   const opacity = useRef(new Animated.Value(0.35)).current;
   useEffect(() => {

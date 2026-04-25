@@ -121,18 +121,25 @@ BOT_UAS = [
 ]
 
 
+JINA_API_KEY = os.environ.get("JINA_API_KEY", "")
+
+
 async def _fetch_via_jina_reader(target_url: str) -> Optional[tuple[str, str]]:
     """
-    Jina Reader (r.jina.ai) is a free public proxy that fetches arbitrary
-    URLs via residential routes and returns pre-extracted markdown.
-    No API key required. Returns (final_url, html) or None.
+    Jina Reader (r.jina.ai) fetches any URL via residential routes and returns
+    clean markdown. Works anonymously (free tier) or with a key for higher limits
+    — set JINA_API_KEY in .env to use the paid tier.
+    Returns (final_url, html) or None.
     """
     reader_url = f"https://r.jina.ai/{target_url}"
+    headers: dict[str, str] = {"User-Agent": UA, "Accept": "text/plain"}
+    if JINA_API_KEY:
+        headers["Authorization"] = f"Bearer {JINA_API_KEY}"
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT, http2=False) as session:
             resp = await session.get(
                 reader_url,
-                headers={"User-Agent": UA, "Accept": "text/plain"},
+                headers=headers,
                 follow_redirects=True,
             )
     except httpx.RequestError:
