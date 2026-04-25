@@ -58,6 +58,7 @@ librt==0.8.1
 litellm==1.80.0
 lxml==6.1.0
 lxml_html_clean==0.4.4
+Markdown==3.7
 markdown-it-py==4.0.0
 MarkupSafe==3.0.3
 mccabe==0.7.0

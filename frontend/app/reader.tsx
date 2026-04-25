@@ -35,6 +35,7 @@ type Stage =
   | "webview_snapshot"
   | "extracting"
   | "ready"
+  | "fallback_browser"
   | "error";
 
 const API_BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
@@ -72,6 +73,20 @@ const PROBE_JS = `
 })(); true;
 `;
 
+const EXTRACT_CURRENT_JS = `
+(function(){
+  try {
+    window.ReactNativeWebView.postMessage(JSON.stringify({
+      type: 'current_html',
+      url: window.location.href,
+      html: document.documentElement.outerHTML
+    }));
+  } catch(e) {
+    window.ReactNativeWebView.postMessage(JSON.stringify({type:'extract_error', message:String(e)}));
+  }
+})(); true;
+`;
+
 function TypographicPulse({ text, color }: { text: string; color: string }) {
   const opacity = useRef(new Animated.Value(0.35)).current;
   useEffect(() => {
@@ -103,6 +118,7 @@ export default function Reader() {
   const [webviewUri, setWebviewUri] = useState<string | null>(null);
   const snapshotUrlRef = useRef<string | null>(null);
   const webviewRef = useRef<WebView | null>(null);
+  const fallbackWebviewRef = useRef<WebView | null>(null);
   const postedHtmlRef = useRef(false);
 
   const finishWithError = useCallback((msg: string) => {
@@ -215,12 +231,17 @@ export default function Reader() {
         if (postedHtmlRef.current) return;
         postedHtmlRef.current = true;
         extractFromHtml(msg.html, msg.url || snapshotUrlRef.current || "");
+      } else if (msg.type === "current_html") {
+        if (postedHtmlRef.current) return;
+        postedHtmlRef.current = true;
+        extractFromHtml(msg.html, msg.url || snapshotUrlRef.current || "");
       } else if (msg.type === "no_snapshot") {
-        finishWithError("No archived version found for this article.");
+        // Show the archive index page so the user can manually pick a snapshot.
+        setStage("fallback_browser");
       } else if (msg.type === "captcha") {
-        finishWithError(
-          "archive.is is showing a challenge page. Try again in a minute or open the snapshot link manually."
-        );
+        // archive.is blocked the hidden WebView — surface it so the user can solve
+        // the captcha or pick a snapshot manually.
+        setStage("fallback_browser");
       }
     },
     [extractFromHtml, finishWithError]
@@ -234,6 +255,10 @@ export default function Reader() {
       if (stage === "webview_index") setStage("webview_snapshot");
     }
   }, [stage]);
+
+  const triggerReaderMode = useCallback(() => {
+    fallbackWebviewRef.current?.injectJavaScript(EXTRACT_CURRENT_JS);
+  }, []);
 
   const domain = useMemo(() => {
     if (data?.source_domain) return data.source_domain.toUpperCase();
@@ -286,7 +311,7 @@ export default function Reader() {
       ? "LOADING SNAPSHOT…"
       : "EXTRACTING ARTICLE…";
 
-  const isLoading = stage !== "ready" && stage !== "error";
+  const isLoading = stage !== "ready" && stage !== "error" && stage !== "fallback_browser";
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} testID="reader-screen">
@@ -399,6 +424,54 @@ export default function Reader() {
             </TouchableOpacity>
           </View>
         </View>
+      ) : stage === "fallback_browser" ? (
+        <View style={{ flex: 1 }} testID="fallback-browser">
+          {/* Instruction banner */}
+          <View style={[styles.fallbackBanner, { backgroundColor: colors.inputBg, borderBottomColor: colors.border }]}>
+            {Platform.OS === "web" ? (
+              <Text style={[T.caption, { color: colors.textSecondary, textAlign: "center", flex: 1 }]}>
+                archive.is blocked the preview. Open the snapshot in a new tab to read it.
+              </Text>
+            ) : (
+              <>
+                <Text style={[T.caption, { color: colors.textSecondary, flex: 1 }]}>
+                  Pick any snapshot below, then tap the book icon to extract.
+                </Text>
+                <TouchableOpacity
+                  onPress={triggerReaderMode}
+                  hitSlop={12}
+                  style={styles.readerModeBtn}
+                  testID="reader-mode-button"
+                  accessibilityLabel="Extract article"
+                >
+                  <Ionicons name="book-outline" size={22} color={colors.brand} />
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+          {/* Visible archive WebView / iframe */}
+          {Platform.OS === "web" ? (
+            <iframe
+              src={webviewUri || `https://archive.ph/newest/${encodeURI(url as string)}`}
+              style={{ flex: 1, border: "none", width: "100%", height: "100%" } as any}
+              title="archive snapshot"
+            />
+          ) : (
+            <WebView
+              ref={fallbackWebviewRef}
+              source={{ uri: webviewUri || `https://archive.ph/newest/${encodeURI(url as string)}` }}
+              onMessage={onWebviewMessage}
+              injectedJavaScript={PROBE_JS}
+              javaScriptEnabled
+              domStorageEnabled
+              thirdPartyCookiesEnabled
+              cacheEnabled
+              originWhitelist={["*"]}
+              userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"
+              style={{ flex: 1 }}
+            />
+          )}
+        </View>
       ) : data ? (
         <ScrollView
           style={{ flex: 1 }}
@@ -498,5 +571,16 @@ const styles = StyleSheet.create({
     opacity: 0,
     top: -1000,
     left: -1000,
+  },
+  fallbackBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+  },
+  readerModeBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
 });
