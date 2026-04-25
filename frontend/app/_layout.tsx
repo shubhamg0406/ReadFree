@@ -3,6 +3,7 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { ShareIntentProvider } from "expo-share-intent";
 import { ThemeProvider, useTheme } from "../ThemeContext";
 
 function RootStack() {
@@ -25,9 +26,11 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <ThemeProvider>
-          <RootStack />
-        </ThemeProvider>
+        <ShareIntentProvider>
+          <ThemeProvider>
+            <RootStack />
+          </ThemeProvider>
+        </ShareIntentProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

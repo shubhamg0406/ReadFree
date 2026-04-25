@@ -173,7 +173,7 @@ export default function Reader() {
         setStage("webview_index");
         return;
       }
-      finishWithError(String(body?.detail || "Could not reach archive. Check your connection."));
+      finishWithError(String(body?.detail || "Something went wrong. Please try again."));
     } catch (e) {
       if (Platform.OS === "web") {
         // Offer the fallback browser on web too
@@ -269,10 +269,6 @@ export default function Reader() {
       if (stage === "webview_index") setStage("webview_snapshot");
     }
   }, [stage]);
-
-  const triggerReaderMode = useCallback(() => {
-    fallbackWebviewRef.current?.injectJavaScript(EXTRACT_CURRENT_JS);
-  }, []);
 
   const domain = useMemo(() => {
     if (data?.source_domain) return data.source_domain.toUpperCase();

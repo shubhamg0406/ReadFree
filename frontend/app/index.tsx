@@ -15,6 +15,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
+import { useShareIntentContext } from "expo-share-intent";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../ThemeContext";
 import { spacing, type as T, radius } from "../theme";
@@ -47,6 +48,15 @@ export default function Home() {
     },
     [router]
   );
+
+  // Handle Android/iOS share-sheet intent (e.g. Share from Chrome).
+  const { shareIntent, resetShareIntent } = useShareIntentContext();
+  useEffect(() => {
+    if (!shareIntent?.text) return;
+    const extracted = extractUrl(shareIntent.text);
+    resetShareIntent();
+    if (extracted) go(extracted);
+  }, [shareIntent, resetShareIntent, go]);
 
   // Listen for share-intent or deep-link URLs and auto-route to reader.
   useEffect(() => {
